@@ -125,7 +125,7 @@ You can use Kiro Gateway as a custom language model in VS Code Copilot Chat (req
         "url": "http://localhost:8000/v1/chat/completions",
         "toolCalling": true,
         "vision": true,
-        "maxInputTokens": 200000,
+        "maxInputTokens": 1000000,
         "maxOutputTokens": 64000
       },
       {
