@@ -15,13 +15,6 @@ Add a provider to your `opencode.json` (or `~/.config/opencode/config.json`):
         "baseURL": "http://localhost:8000/v1"
       },
       "models": {
-        "claude-opus-4.7": {
-          "name": "Claude Opus 4.7 (Kiro)",
-          "modalities": {
-            "input": ["text", "image"],
-            "output": ["text"]
-          }
-        },
         "claude-opus-4.6": {
           "name": "Claude Opus 4.6 (Kiro)",
           "modalities": {
@@ -101,15 +94,6 @@ You can use Kiro Gateway as a custom language model in VS Code Copilot Chat (req
     "apiKey": "pick-any-secret-string",
     "apiType": "chat-completions",
     "models": [
-      {
-        "id": "claude-opus-4.7-kiro",
-        "name": "Claude Opus 4.7 (Kiro)",
-        "url": "http://localhost:8000/v1/chat/completions",
-        "toolCalling": true,
-        "vision": true,
-        "maxInputTokens": 200000,
-        "maxOutputTokens": 64000
-      },
       {
         "id": "claude-opus-4.6-kiro",
         "name": "Claude Opus 4.6 (Kiro)",
