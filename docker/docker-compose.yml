@@ -9,16 +9,22 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ~/.aws/sso/cache:/home/kiro/.aws/sso/cache:ro
+      - ~/Library/Application Support/kiro-cli:/home/kiro/.local/share/kiro-cli:ro
       - ./start_no_ssl_verify.py:/app/start_no_ssl_verify.py:ro
     command: ["python", "start_no_ssl_verify.py"]
     env_file:
       - ../.env
     environment:
-      - KIRO_CREDS_FILE=/home/kiro/.aws/sso/cache/kiro-auth-token-cli.json
+      - KIRO_CLI_DB_FILE=/home/kiro/.local/share/kiro-cli/data.sqlite3
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health', timeout=5)"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import httpx; httpx.get('http://localhost:8000/health', timeout=5)",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3

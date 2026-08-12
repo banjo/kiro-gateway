@@ -56,13 +56,25 @@ nslookup runtime.eu-west-1.kiro.dev
 
 Use whichever resolves. `us-east-1` works for most corporate networks.
 
-### KIRO_CREDS_FILE
+### Credentials source
 
-Path to your Kiro authentication token file. After logging in with `kiro-cli login`, this is at:
+The gateway needs access to your Kiro authentication tokens. There are two options:
+
+**Option 1: SQLite database (recommended)** — The kiro-cli app maintains a SQLite database with auto-refreshing tokens. This is the most reliable option, especially for enterprise/SSO users, since kiro-cli keeps the tokens fresh.
 
 ```
-~/.aws/sso/cache/kiro-auth-token-cli.json
+KIRO_CLI_DB_FILE=~/Library/Application Support/kiro-cli/data.sqlite3
 ```
+
+On Linux, the path is typically `~/.local/share/kiro-cli/data.sqlite3`.
+
+**Option 2: JSON credentials file** — Points to the token file written by kiro-cli. This file can go stale if you don't use kiro-cli regularly, since nothing auto-refreshes it.
+
+```
+KIRO_CREDS_FILE=~/.aws/sso/cache/kiro-auth-token-cli.json
+```
+
+> **Note:** If you're on enterprise SSO and your JSON token file has expired, switch to the SQLite database option. The JSON file at `~/.aws/sso/cache/` is often not kept up to date, while the SQLite database is actively maintained by kiro-cli.
 
 ## Setup
 
@@ -90,7 +102,7 @@ Edit `python/kiro-gateway/.env`:
 
 ```bash
 PROXY_API_KEY=pick-any-secret-string
-KIRO_CREDS_FILE=~/.aws/sso/cache/kiro-auth-token-cli.json
+KIRO_CLI_DB_FILE=~/Library/Application Support/kiro-cli/data.sqlite3
 KIRO_API_REGION=us-east-1
 PROFILE_ARN=arn:aws:codewhisperer:us-east-1:YOUR_ACCOUNT:profile/YOUR_PROFILE
 FAKE_REASONING=false
@@ -203,6 +215,8 @@ You're on a corporate SSO account. Get your profile ARN with `kiro-cli whoami` a
 
 Your corporate VPN does TLS inspection. Use `start_no_ssl_verify.py` (the default in this setup) which disables SSL verification for outbound requests.
 
-### Token expired
+### Token expired / "invalid_grant" error
 
-Re-login with `kiro-cli login`. The gateway auto-refreshes tokens, but if the refresh token itself expires you need to re-authenticate.
+If you see `invalid_grant` or `Invalid refresh token provided`, your token file has gone stale. Switch to the SQLite database method (`KIRO_CLI_DB_FILE`) instead of the JSON file method — see the "Credentials source" section above. The SQLite database is kept fresh by kiro-cli automatically.
+
+If the SQLite tokens are also expired, re-login with `kiro-cli logout && kiro-cli login`.
