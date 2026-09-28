@@ -122,6 +122,7 @@ async def stream_kiro_to_openai_internal(
     context_usage_percentage = None
     full_content = ""
     full_thinking_content = ""  # Accumulated thinking content for non-streaming
+    upstream_truncated = False  # Set from stream_end when upstream is cut mid-event
     
     streaming_error_occurred = False
     tool_calls_from_stream = []
@@ -267,20 +268,22 @@ async def stream_kiro_to_openai_internal(
             
             elif event.type == "context_usage" and event.context_usage_percentage is not None:
                 context_usage_percentage = event.context_usage_percentage
-        
-        # Track completion signals for truncation detection
-        received_usage = metering_data is not None
-        received_context_usage = context_usage_percentage is not None
-        stream_completed_normally = received_usage or received_context_usage
+            
+            elif event.type == "stream_end":
+                upstream_truncated = event.stream_truncated
         
         # Check bracket-style tool calls in full content
         bracket_tool_calls = parse_bracket_tool_calls(full_content)
         all_tool_calls = tool_calls_from_stream + bracket_tool_calls
         all_tool_calls = deduplicate_tool_calls(all_tool_calls)
         
-        # Detect content truncation (missing completion signals)
+        # Detect content truncation from a positive signal: the upstream stream
+        # was cut off mid-event. Absence of usage/context_usage metadata is NOT
+        # treated as truncation, since short but complete replies (e.g. "Done.")
+        # often omit it and must not be reported as truncated (which would make
+        # agentic clients auto-continue in a loop).
         content_was_truncated = (
-            not stream_completed_normally and
+            upstream_truncated and
             len(full_content) > 0 and
             not all_tool_calls  # Don't confuse with tool call truncation
         )

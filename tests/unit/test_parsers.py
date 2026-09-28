@@ -883,6 +883,80 @@ class TestAwsEventStreamParserEdgeCases:
         assert events == []
 
 
+class TestHasIncompleteEvent:
+    """Tests for has_incomplete_event - positive truncation signal detection."""
+    
+    def test_empty_buffer_is_not_incomplete(self, aws_event_parser):
+        """
+        What it does: Empty buffer reports no incomplete event.
+        Goal: A fully consumed stream ended on a clean boundary.
+        """
+        print("Setup: Feed a fully-formed content event...")
+        aws_event_parser.feed(b'{"content":"Done."}')
+        
+        print("Action: Checking has_incomplete_event...")
+        result = aws_event_parser.has_incomplete_event()
+        
+        print(f"Comparing: Expected False, Got {result}")
+        assert result is False
+    
+    def test_trailing_framing_bytes_are_not_incomplete(self, aws_event_parser):
+        """
+        What it does: Non-event trailing bytes are not treated as truncation.
+        Goal: AWS binary framing left in buffer must not be a false positive.
+        """
+        print("Setup: Feed complete event followed by framing garbage...")
+        aws_event_parser.feed(b'{"content":"Done."}\x00\x00:message-type')
+        
+        print("Action: Checking has_incomplete_event...")
+        result = aws_event_parser.has_incomplete_event()
+        
+        print(f"Comparing: Expected False, Got {result}")
+        assert result is False
+    
+    def test_partial_event_is_incomplete(self, aws_event_parser):
+        """
+        What it does: A content event cut off mid-JSON reports incomplete.
+        Goal: Verify the positive truncation signal fires on a dangling event.
+        """
+        print("Setup: Feed a content event with no closing brace...")
+        aws_event_parser.feed(b'{"content":"This was cut off mid-sen')
+        
+        print("Action: Checking has_incomplete_event...")
+        result = aws_event_parser.has_incomplete_event()
+        
+        print(f"Comparing: Expected True, Got {result}")
+        assert result is True
+    
+    def test_partial_tool_input_is_incomplete(self, aws_event_parser):
+        """
+        What it does: A tool_input event cut off mid-JSON reports incomplete.
+        Goal: Verify truncation detection works for non-content event patterns.
+        """
+        print("Setup: Feed a tool_input event with no closing brace...")
+        aws_event_parser.feed(b'{"input":"{\\"path\\": \\"/very/long/pa')
+        
+        print("Action: Checking has_incomplete_event...")
+        result = aws_event_parser.has_incomplete_event()
+        
+        print(f"Comparing: Expected True, Got {result}")
+        assert result is True
+    
+    def test_complete_then_partial_is_incomplete(self, aws_event_parser):
+        """
+        What it does: A complete event followed by a partial one reports incomplete.
+        Goal: Verify the trailing partial event is detected after clean events.
+        """
+        print("Setup: Feed a complete content event then a partial one...")
+        aws_event_parser.feed(b'{"content":"First part."}{"content":"cut off')
+        
+        print("Action: Checking has_incomplete_event...")
+        result = aws_event_parser.has_incomplete_event()
+        
+        print(f"Comparing: Expected True, Got {result}")
+        assert result is True
+
+
 class TestDiagnoseJsonTruncation:
     """
     Tests for _diagnose_json_truncation method for diagnosing truncated JSON.

@@ -102,6 +102,19 @@ def setup_test_environment(tmp_path_factory):
     print("🧹 Test environment cleaned up")
 
 
+@pytest.fixture(autouse=True)
+def isolate_env_overrides(monkeypatch):
+    """
+    Prevents the developer's real .env from leaking runtime override env vars.
+
+    kiro.config calls load_dotenv() at import time, which populates os.environ
+    (e.g. KIRO_API_REGION) from the local .env. Tests that don't explicitly set
+    such overrides must see clean defaults; tests that do set them override this
+    via their own monkeypatch.setenv (same monkeypatch instance, applied later).
+    """
+    monkeypatch.delenv("KIRO_API_REGION", raising=False)
+
+
 @pytest.fixture
 def mock_env_vars(monkeypatch):
     """

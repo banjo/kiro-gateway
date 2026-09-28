@@ -197,6 +197,7 @@ async def stream_kiro_to_anthropic(
     # Track context usage for token calculation
     context_usage_percentage: Optional[float] = None
     upstream_cache_usage: Dict[str, int] = {}
+    upstream_truncated = False  # Set from stream_end when upstream is cut mid-event
     
     # Track truncated tool calls for recovery
     truncated_tools: List[Dict[str, Any]] = []
@@ -522,9 +523,8 @@ async def stream_kiro_to_anthropic(
                 context_usage_percentage = event.context_usage_percentage
             elif event.type == "usage" and event.usage:
                 upstream_cache_usage.update(_extract_cache_usage_fields(event.usage))
-        
-        # Track completion signals for truncation detection
-        stream_completed_normally = context_usage_percentage is not None
+            elif event.type == "stream_end":
+                upstream_truncated = event.stream_truncated
         
         # Check for bracket-style tool calls in full content
         bracket_tool_calls = parse_bracket_tool_calls(full_content)
@@ -606,9 +606,13 @@ async def stream_kiro_to_anthropic(
                 "index": text_block_index
             })
         
-        # Detect content truncation (missing completion signals)
+        # Detect content truncation from a positive signal: the upstream stream
+        # was cut off mid-event. Absence of context_usage metadata is NOT treated
+        # as truncation, since short but complete replies (e.g. "Done.") often omit
+        # it and must not be reported as truncated (which would make agentic clients
+        # auto-continue in a loop).
         content_was_truncated = (
-            not stream_completed_normally and
+            upstream_truncated and
             len(full_content) > 0 and
             not tool_blocks  # Don't confuse with tool call truncation
         )
@@ -815,10 +819,11 @@ async def collect_anthropic_response(
         if prompt_source != "unknown":
             input_tokens = prompt_tokens
     
-    # Detect content truncation (missing completion signals)
-    stream_completed_normally = result.context_usage_percentage is not None
+    # Detect content truncation from a positive signal: the upstream stream was
+    # cut off mid-event. Absence of context_usage metadata is NOT treated as
+    # truncation, since short but complete replies (e.g. "Done.") often omit it.
     content_was_truncated = (
-        not stream_completed_normally and
+        result.stream_truncated and
         len(result.content) > 0 and
         not result.tool_calls  # Don't confuse with tool call truncation
     )

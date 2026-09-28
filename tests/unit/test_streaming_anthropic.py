@@ -1548,11 +1548,12 @@ class TestStreamingAnthropicTruncationDetection:
         What it does: Sets stop_reason to max_tokens when content is truncated.
         Goal: Verify truncation detection without completion signals.
         """
-        print("Setup: Mock stream without completion signals (truncated)...")
+        print("Setup: Mock stream cut off mid-event (truncated)...")
         
         async def mock_parse_kiro_stream(*args, **kwargs):
             yield KiroEvent(type="content", content="This response was cut off mid-sentence because")
-            # No context_usage event = truncation
+            # Upstream stream was cut mid-event = truncation
+            yield KiroEvent(type="stream_end", stream_truncated=True)
         
         print("Action: Streaming to Anthropic format...")
         events = []
@@ -1572,6 +1573,37 @@ class TestStreamingAnthropicTruncationDetection:
         print(f"Comparing stop_reason: Expected 'max_tokens', Got event: {message_delta_events[0]}")
         assert "max_tokens" in message_delta_events[0]
         print("✓ stop_reason is max_tokens when truncated")
+    
+    @pytest.mark.asyncio
+    async def test_stop_reason_is_end_turn_for_short_complete_response_without_usage(self, mock_response, mock_model_cache, mock_auth_manager):
+        """
+        What it does: Sets stop_reason to end_turn for a short complete reply that
+            ends cleanly without any context_usage metadata.
+        Goal: Regression for the auto-continue loop - short replies like "Done."
+            that omit metering must NOT be reported as truncated (max_tokens).
+        """
+        print("Setup: Mock short complete stream, no context_usage, clean end boundary...")
+        
+        async def mock_parse_kiro_stream(*args, **kwargs):
+            yield KiroEvent(type="content", content="Done.")
+            # No context_usage, but stream ended cleanly on an event boundary
+            yield KiroEvent(type="stream_end", stream_truncated=False)
+        
+        print("Action: Streaming to Anthropic format...")
+        events = []
+        
+        with patch('kiro.streaming_anthropic.parse_kiro_stream', mock_parse_kiro_stream):
+            with patch('kiro.streaming_anthropic.parse_bracket_tool_calls', return_value=[]):
+                async for event in stream_kiro_to_anthropic(
+                    mock_response, "claude-sonnet-4", mock_model_cache, mock_auth_manager
+                ):
+                    events.append(event)
+        
+        message_delta_events = [e for e in events if "message_delta" in e]
+        assert len(message_delta_events) >= 1
+        print(f"Comparing stop_reason: Expected 'end_turn', Got event: {message_delta_events[0]}")
+        assert "end_turn" in message_delta_events[0]
+        print("✓ short complete response maps to end_turn, not max_tokens")
     
     @pytest.mark.asyncio
     async def test_stop_reason_is_tool_use_even_without_completion_signals(self, mock_response, mock_model_cache, mock_auth_manager):
@@ -1652,7 +1684,8 @@ class TestStreamingAnthropicTruncationDetection:
             thinking_content="",
             tool_calls=[],
             usage=None,
-            context_usage_percentage=None  # No completion signal = truncation
+            context_usage_percentage=None,
+            stream_truncated=True  # Upstream cut mid-event = truncation
         )
         
         print("Action: Collecting Anthropic response...")
