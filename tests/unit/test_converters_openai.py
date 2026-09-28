@@ -20,6 +20,7 @@ from kiro.converters_openai import (
     reasoning_effort_to_budget,
     extract_thinking_config_from_openai,
 )
+from kiro.converters_core import _THINKING_PLACEHOLDERS
 from kiro.models_openai import ChatMessage, ChatCompletionRequest, Tool, ToolFunction
 
 
@@ -737,7 +738,8 @@ class TestBuildKiroPayload:
     def test_handles_assistant_as_last_message(self):
         """
         What it does: Verifies handling of assistant as last message.
-        Purpose: Ensure "(empty placeholder)" message is created.
+        Purpose: Ensure a placeholder user message is created when the last
+            message is from the assistant.
         """
         print("Setup: Request with assistant at the end...")
         request = ChatCompletionRequest(
@@ -753,7 +755,7 @@ class TestBuildKiroPayload:
         
         print(f"Result: {result}")
         current_content = result["conversationState"]["currentMessage"]["userInputMessage"]["content"]
-        assert current_content == "(empty placeholder)"
+        assert current_content in _THINKING_PLACEHOLDERS
     
     def test_raises_for_empty_messages(self):
         """
@@ -775,8 +777,9 @@ class TestBuildKiroPayload:
     
     def test_uses_continue_for_empty_content(self):
         """
-        What it does: Verifies using "(empty placeholder)" for empty content.
-        Purpose: Ensure empty message is replaced with "(empty placeholder)".
+        What it does: Verifies a random placeholder is used for empty content.
+        Purpose: Ensure an empty user message is replaced with a placeholder
+            from _THINKING_PLACEHOLDERS.
         """
         print("Setup: Request with empty content...")
         request = ChatCompletionRequest(
@@ -784,14 +787,13 @@ class TestBuildKiroPayload:
             messages=[ChatMessage(role="user", content="")]
         )
 
-        print("Action: Building payload (with fake reasoning and truncation recovery disabled)...")
-        with patch('kiro.converters_core.FAKE_REASONING_ENABLED', False):
-            with patch('kiro.config.TRUNCATION_RECOVERY', False):
-                result = build_kiro_payload(request, "conv-123", "")
+        print("Action: Building payload (truncation recovery disabled for determinism)...")
+        with patch('kiro.config.TRUNCATION_RECOVERY', False):
+            result = build_kiro_payload(request, "conv-123", "")
 
         print(f"Result: {result}")
         current_content = result["conversationState"]["currentMessage"]["userInputMessage"]["content"]
-        assert current_content == "(empty placeholder)"
+        assert current_content in _THINKING_PLACEHOLDERS
     
     def test_normalizes_model_id_correctly(self):
         """

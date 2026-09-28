@@ -76,6 +76,7 @@ class KiroEvent:
         context_usage_percentage: Context usage percentage (for context_usage events)
         is_first_thinking_chunk: Whether this is the first thinking chunk
         is_last_thinking_chunk: Whether this is the last thinking chunk
+        stream_truncated: Whether upstream ended mid-event (for stream_end events)
     """
     type: str
     content: Optional[str] = None
@@ -85,6 +86,7 @@ class KiroEvent:
     context_usage_percentage: Optional[float] = None
     is_first_thinking_chunk: bool = False
     is_last_thinking_chunk: bool = False
+    stream_truncated: bool = False
 
 
 @dataclass
@@ -98,12 +100,14 @@ class StreamResult:
         tool_calls: List of tool calls
         usage: Usage information
         context_usage_percentage: Context usage percentage from Kiro API
+        stream_truncated: Whether upstream ended mid-event (truncated response)
     """
     content: str = ""
     thinking_content: str = ""
     tool_calls: List[Dict[str, Any]] = field(default_factory=list)
     usage: Optional[Dict[str, Any]] = None
     context_usage_percentage: Optional[float] = None
+    stream_truncated: bool = False
 
 
 class FirstTokenTimeoutError(Exception):
@@ -214,6 +218,11 @@ async def parse_kiro_stream(
         # Yield tool calls if any
         for tc in all_tool_calls:
             yield KiroEvent(type="tool_use", tool_use=tc)
+        
+        # Signal clean end-of-stream and whether it was cut off mid-event.
+        # A partial, unterminated event left in the buffer means the upstream
+        # response was truncated; a clean boundary means it completed normally.
+        yield KiroEvent(type="stream_end", stream_truncated=parser.has_incomplete_event())
             
     except FirstTokenTimeoutError:
         raise
@@ -321,6 +330,8 @@ async def collect_stream_to_result(
             result.usage = event.usage
         elif event.type == "context_usage" and event.context_usage_percentage is not None:
             result.context_usage_percentage = event.context_usage_percentage
+        elif event.type == "stream_end":
+            result.stream_truncated = event.stream_truncated
     
     # Check for bracket-style tool calls in full content
     bracket_tool_calls = parse_bracket_tool_calls(full_content_for_bracket_tools)

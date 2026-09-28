@@ -547,6 +547,27 @@ class AwsEventStreamParser:
         # Doesn't look truncated, probably just malformed
         return {"is_truncated": False, "reason": "malformed JSON", "size_bytes": size_bytes}
     
+    def has_incomplete_event(self) -> bool:
+        """
+        Checks whether the buffer holds an event that was cut off mid-transmission.
+
+        After the upstream stream closes, a recognized event pattern whose JSON
+        was never completed (no matching closing brace) means the response was
+        truncated mid-stream rather than ending cleanly on an event boundary.
+
+        This is a positive truncation signal: a complete response always ends on
+        an event boundary, so short but complete replies (e.g. "Done.") return
+        False here, while responses interrupted mid-event return True.
+
+        Returns:
+            True if the buffer contains a partial, unterminated event
+        """
+        for pattern, _ in self.EVENT_PATTERNS:
+            pos = self.buffer.find(pattern)
+            if pos != -1 and find_matching_brace(self.buffer, pos) == -1:
+                return True
+        return False
+
     def get_tool_calls(self) -> List[Dict[str, Any]]:
         """
         Returns all collected tool calls.

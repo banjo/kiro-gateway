@@ -1368,11 +1368,12 @@ class TestStreamingOpenaiTruncationDetection:
         What it does: Sets finish_reason to length when content is truncated.
         Goal: Verify truncation detection without completion signals.
         """
-        print("Setup: Mock stream without completion signals (truncated)...")
+        print("Setup: Mock stream cut off mid-event (truncated)...")
         
         async def mock_parse_kiro_stream(*args, **kwargs):
             yield KiroEvent(type="content", content="This response was cut off mid-sentence because")
-            # No usage event = truncation
+            # Upstream stream was cut mid-event = truncation
+            yield KiroEvent(type="stream_end", stream_truncated=True)
         
         print("Action: Streaming to OpenAI format...")
         chunks = []
@@ -1460,16 +1461,48 @@ class TestStreamingOpenaiTruncationDetection:
         print("✓ finish_reason is stop with completion signals")
     
     @pytest.mark.asyncio
+    async def test_finish_reason_is_stop_for_short_complete_response_without_usage(self, mock_http_client, mock_response, mock_model_cache, mock_auth_manager):
+        """
+        What it does: Sets finish_reason to stop for a short complete reply that
+            ends cleanly without any usage/context_usage metadata.
+        Goal: Regression for the auto-continue loop - short replies like "Done."
+            that omit metering must NOT be reported as truncated (length).
+        """
+        print("Setup: Mock short complete stream, no usage, clean end boundary...")
+        
+        async def mock_parse_kiro_stream(*args, **kwargs):
+            yield KiroEvent(type="content", content="Done.")
+            # No usage, but stream ended cleanly on an event boundary
+            yield KiroEvent(type="stream_end", stream_truncated=False)
+        
+        print("Action: Streaming to OpenAI format...")
+        chunks = []
+        
+        with patch('kiro.streaming_openai.parse_kiro_stream', mock_parse_kiro_stream):
+            with patch('kiro.streaming_openai.parse_bracket_tool_calls', return_value=[]):
+                async for chunk in stream_kiro_to_openai(
+                    mock_http_client, mock_response, "claude-sonnet-4",
+                    mock_model_cache, mock_auth_manager
+                ):
+                    chunks.append(chunk)
+        
+        final_chunk = chunks[-2]  # Before [DONE]
+        print(f"Comparing finish_reason: Expected 'stop', Got chunk: {final_chunk}")
+        assert '"finish_reason": "stop"' in final_chunk
+        print("✓ short complete response maps to stop, not length")
+    
+    @pytest.mark.asyncio
     async def test_collect_extracts_finish_reason_from_chunks(self, mock_http_client, mock_response, mock_model_cache, mock_auth_manager):
         """
         What it does: Non-streaming extracts finish_reason from streaming chunks.
         Goal: Verify collect_stream_response correctly extracts finish_reason.
         """
-        print("Setup: Mock stream without completion signals...")
+        print("Setup: Mock stream cut off mid-event...")
         
         async def mock_parse_kiro_stream(*args, **kwargs):
             yield KiroEvent(type="content", content="Truncated")
-            # No usage = truncation
+            # Upstream cut mid-event = truncation
+            yield KiroEvent(type="stream_end", stream_truncated=True)
         
         print("Action: Collecting stream response...")
         
